@@ -47,13 +47,13 @@ describe('OC.Share.ShareItemModel', function() {
 			sharePermissions: 31
 		});
 
-		var attributes = {
+		var properties = {
 			itemType: fileInfoModel.isDirectory() ? 'folder' : 'file',
 			itemSource: fileInfoModel.get('id'),
 			possiblePermissions: fileInfoModel.get('sharePermissions')
 		};
 		configModel = new OC.Share.ShareConfigModel();
-		model = new OC.Share.ShareItemModel(attributes, {
+		model = new OC.Share.ShareItemModel(properties, {
 			configModel: configModel,
 			fileInfoModel: fileInfoModel
 		});
@@ -118,7 +118,7 @@ describe('OC.Share.ShareItemModel', function() {
 
 			fetchReshareStub = null;
 		});
-		it('populates attributes with parsed response', function() {
+		it('populates properties with parsed response', function() {
 			/* jshint camelcase: false */
 			fetchReshareDeferred.resolve(makeOcsResponse([
 				{
@@ -585,6 +585,303 @@ describe('OC.Share.ShareItemModel', function() {
 				expect(
 					testWithPermissions(OC.PERMISSION_ALL)
 				).toEqual(OC.PERMISSION_READ | OC.PERMISSION_CREATE | OC.PERMISSION_SHARE);
+			});
+		});
+	});
+
+	describe('share attributes', function() {
+		beforeEach(function() {
+			model.set({
+				reshare: {},
+				shares: [],
+				_registeredAttributes: []
+			});
+		});
+
+		/**
+		 * Creates dummy attribute
+		 *
+		 * @return {OC.Share.Types.RegisteredShareAttribute} registered attribute
+		 */
+		function createRegisteredAttribute() {
+			return {
+				scope: "test",
+				key: "test",
+				default: true,
+				label: "test",
+				shareType : [
+					OC.Share.SHARE_TYPE_GROUP,
+					OC.Share.SHARE_TYPE_USER
+				],
+				incompatiblePermissions: [],
+				requiredPermissions: [],
+				incompatibleAttributes: []
+			};
+		}
+
+		/**
+		 * Parses attributes of share creation
+		 * request (request send to the server)
+		 *
+		 * @return {OC.Share.Types.ShareAttribute[]}
+		 */
+		function parseLastRequestAttributes() {
+			var requestBody = OC.parseQueryString(fakeServer.requests[0].requestBody);
+
+			var i = -1;
+			var attributes = [];
+			_.map(Object.keys(requestBody), function(key) {
+				if (key.indexOf('attributes') !== -1) {
+					if (key.indexOf('scope') !== -1) {
+						i = i + 1;
+						attributes.push({});
+						attributes[i].scope = requestBody[key];
+					}
+					if (key.indexOf('key') !== -1) {
+						attributes[i].key = requestBody[key];
+					}
+					if (key.indexOf('enabled') !== -1) {
+						attributes[i].enabled = JSON.parse(requestBody[key]);
+					}
+				}
+			});
+
+			//console.log(requestBody);
+			return attributes;
+		}
+
+		/**
+		 * Tests sharing with the given possible attributes
+		 *
+		 * @param {int} permissionsToSet
+		 * @param {OC.Share.Types.RegisteredShareAttribute[]} attributesToRegister
+		 * @param {array} sharePropertiesToUpdate
+		 * @return {OC.Share.Types.ShareAttribute[]}
+		 */
+		function testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate) {
+			model.set({
+				permissions: permissionsToSet,
+				possiblePermissions: permissionsToSet
+			});
+
+			_.map(attributesToRegister, function (attributeToRegister) {
+				model.registerShareAttribute(attributeToRegister);
+			});
+
+			if (Object.keys(sharePropertiesToUpdate).length > 0) {
+				// if there are properties to update, update share
+				model.updateShare(123, sharePropertiesToUpdate, {});
+			} {
+				// no share properties to update, so new share
+				model.addShare({
+					shareType: OC.Share.SHARE_TYPE_USER,
+					shareWith: 'user2'
+				});
+			}
+
+			return parseLastRequestAttributes();
+		}
+
+		describe('regular sharing', function() {
+
+			it('no registered attributes', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+				var attributesToRegister = [];
+				var sharePropertiesToUpdate = {};
+
+				// define expected result and test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual([]);
+			});
+
+			it('registered attributes become default attributes for new share', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+				var testAttribute = createRegisteredAttribute();
+				var attributesToRegister = [
+					testAttribute
+				];
+				var sharePropertiesToUpdate = {};
+
+				// define expected result
+				var attributesToExpect = [
+					{ scope: "test", key: "test", enabled: true }
+				];
+
+				// test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual(attributesToExpect);
+			});
+
+			it('filtered registered attributes become default attributes for new share', function() {
+				var requiresCreate = createRegisteredAttribute();
+				requiresCreate.key = "requires-create";
+				requiresCreate.incompatiblePermissions = [];
+				requiresCreate.requiredPermissions = [ OC.PERMISSION_CREATE ];
+				requiresCreate.incompatibleAttributes = [];
+
+				var requiresUpdate = createRegisteredAttribute();
+				requiresUpdate.key = "requires-update";
+				requiresUpdate.incompatiblePermissions = [];
+				requiresUpdate.requiredPermissions = [ OC.PERMISSION_UPDATE ];
+				requiresUpdate.incompatibleAttributes = [];
+
+				var incompatibleCreate = createRegisteredAttribute();
+				incompatibleCreate.key = "incompatible-create";
+				incompatibleCreate.incompatiblePermissions = [ OC.PERMISSION_CREATE ];
+				incompatibleCreate.requiredPermissions = [];
+				incompatibleCreate.incompatibleAttributes = [];
+
+				var incompatibleUpdate = createRegisteredAttribute();
+				incompatibleUpdate.key = "incompatible-update";
+				incompatibleUpdate.incompatiblePermissions = [ OC.PERMISSION_UPDATE ];
+				incompatibleUpdate.requiredPermissions = [];
+				incompatibleUpdate.incompatibleAttributes = [];
+
+				var incompatibleAttrDisa = createRegisteredAttribute();
+				incompatibleAttrDisa.key = "incompatible-attribute-requires-update-true";
+				incompatibleAttrDisa.incompatiblePermissions = [];
+				incompatibleAttrDisa.requiredPermissions = [];
+				incompatibleAttrDisa.incompatibleAttributes = [ { scope: "test", key: "requires-update", enabled: true } ];
+
+				var incompatibleAttrEnab = createRegisteredAttribute();
+				incompatibleAttrEnab.key = "incompatible-attribute-requires-update-false";
+				incompatibleAttrEnab.incompatiblePermissions = [];
+				incompatibleAttrEnab.requiredPermissions = [];
+				incompatibleAttrEnab.incompatibleAttributes = [ { scope: "test", key: "requires-update", enabled: false } ];
+
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+				var attributesToRegister = [
+					requiresCreate, requiresUpdate,
+					incompatibleCreate, incompatibleUpdate,
+					incompatibleAttrDisa, incompatibleAttrEnab
+				];
+				var sharePropertiesToUpdate = {};
+
+					// define expected result
+				var attributesToExpect = [
+					{ scope: "test", key: "requires-update", enabled: true },
+					{ scope: "test", key: "incompatible-create", enabled: true },
+					{ scope: "test", key: "incompatible-attribute-requires-update-false", enabled: true }
+				];
+
+				// test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual(attributesToExpect);
+			});
+
+			it('add new attribute to existing share but none registered (error handling scenario)', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+				var attributesToRegister = [];
+				var sharePropertiesToUpdate = {
+					attributes: [
+						{ scope: "test", key: "test", enabled: false }
+					],
+					permissions: permissionsToSet
+				};
+
+				// define expected result and test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual([]);
+			});
+
+			it('update existing default attribute with new enabled value', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+
+				var testAttribute = createRegisteredAttribute();
+				testAttribute.scope = "test";
+				testAttribute.key = "test";
+				testAttribute.default = true;
+				var attributesToRegister = [testAttribute];
+
+				var sharePropertiesToUpdate = {
+					attributes: [
+						{ scope: "test", key: "test", enabled: false }
+					],
+					permissions: permissionsToSet
+				};
+
+				// define expected result
+				var attributesToExpect = [
+					{ scope: "test", key: "test", enabled: false }
+				];
+
+				// test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual(attributesToExpect);
+			});
+
+			it('update existing permission which removes attribute', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_UPDATE | OC.PERMISSION_SHARE;
+
+				var incompatibleCreate = createRegisteredAttribute();
+				incompatibleCreate.key = "incompatible-create";
+				incompatibleCreate.incompatiblePermissions = [ OC.PERMISSION_CREATE ];
+				incompatibleCreate.requiredPermissions = [];
+				incompatibleCreate.incompatibleAttributes = [];
+				var compatibleCreate = createRegisteredAttribute();
+				compatibleCreate.key = "compatible-create";
+				compatibleCreate.incompatiblePermissions = [];
+				compatibleCreate.requiredPermissions = [];
+				compatibleCreate.incompatibleAttributes = [];
+
+				var attributesToRegister = [incompatibleCreate,compatibleCreate];
+
+				var sharePropertiesToUpdate = {
+					permissions: permissionsToSet | OC.PERMISSION_CREATE
+				};
+
+				// define expected result
+				var attributesToExpect = [
+					{ scope: "test", key: "compatible-create", enabled: true }
+				];
+
+				// test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual(attributesToExpect);
+			});
+
+			it('update existing permission which enabled attribute which is incompatible in another attribute', function() {
+				// define test
+				var permissionsToSet = OC.PERMISSION_READ | OC.PERMISSION_SHARE;
+
+				var incompatibleCreate = createRegisteredAttribute();
+				incompatibleCreate.key = "compatible-update";
+				incompatibleCreate.incompatiblePermissions = [ ];
+				incompatibleCreate.requiredPermissions = [ OC.PERMISSION_UPDATE ];
+				incompatibleCreate.incompatibleAttributes = [];
+				var compatibleCreate = createRegisteredAttribute();
+				compatibleCreate.key = "incompatible-with-compatible-update-attr";
+				compatibleCreate.incompatiblePermissions = [];
+				compatibleCreate.requiredPermissions = [];
+				compatibleCreate.incompatibleAttributes = [{ scope: "test", key: "compatible-update", enabled: true }];
+
+				var attributesToRegister = [incompatibleCreate,compatibleCreate];
+
+				var sharePropertiesToUpdate = {
+					permissions: OC.PERMISSION_READ | OC.PERMISSION_SHARE| OC.PERMISSION_UPDATE
+				};
+
+				// define expected result
+				var attributesToExpect = [
+					{ scope: "test", key: "compatible-update", enabled: true }
+				];
+
+				// test
+				expect(
+					testShareWithAttributes(permissionsToSet, attributesToRegister, sharePropertiesToUpdate)
+				).toEqual(attributesToExpect);
 			});
 		});
 	});

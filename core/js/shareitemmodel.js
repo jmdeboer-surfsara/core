@@ -73,8 +73,8 @@
 	 * @property {string} description
 	 * @property {number[]} shareType
 	 * @property {number[]} incompatiblePermissions
-	 * @property {OC.Share.Types.ShareAttribute[]} incompatibleAttributes
 	 * @property {number[]} requiredPermissions
+	 * @property {OC.Share.Types.ShareAttribute[]} incompatibleAttributes
 	 */
 
 	/**
@@ -172,10 +172,11 @@
 			}
 			properties.permissions = defaultPermissions & possiblePermissions;
 
+			// FIXME: simplify the logic by merging and then filtering
 			// Set default attributes for this share based on registered
 			// attributes (filtered by their incompatible permissions)
 			var newShareAttributes = [];
-			var filteredRegisteredAttributes = this.filterRegisteredAttributes(properties.permissions);
+			var filteredRegisteredAttributes = this._filterRegisteredAttributes(properties.permissions);
 			_.map(filteredRegisteredAttributes, function(filteredRegisteredAttribute) {
 				var isCompatible = true;
 				// Check if this attribute can be added due to its incompatible attributes
@@ -234,12 +235,13 @@
 			var self = this;
 			options = options || {};
 
+			// FIXME: simplify the logic by merging and then filtering
 			// Set share attributes for this share based on registered
 			// attributes (filtered by their incompatible permissions
 			// and incompatible attributes)
 			var newShareAttributes = [];
 			var filteredAttributes = [];
-			var filteredRegisteredAttributes = this.filterRegisteredAttributes(properties.permissions);
+			var filteredRegisteredAttributes = this._filterRegisteredAttributes(properties.permissions);
 			_.map(filteredRegisteredAttributes, function(filteredRegisteredAttribute) {
 				// Check if this allowed registered attribute
 				// is on the list of currently set properties,
@@ -884,37 +886,6 @@
 		},
 
 		/**
-		 * Filter registered attributes by current share permissions
-		 *
-		 * @param {number} permissions
-		 * @returns {OC.Share.Types.RegisteredShareAttribute[]}
-		 * @private
-		 */
-		filterRegisteredAttributes: function(permissions) {
-			var filteredByPermissions = [];
-			for(var i in this._registeredAttributes) {
-				var compatible = true;
-				var attr = this._registeredAttributes[i];
-				for(var ii in attr.incompatiblePermissions) {
-					if (this._hasPermission(permissions, attr.incompatiblePermissions[ii])) {
-						compatible = false;
-					}
-				}
-				for(var ii in attr.requiredPermissions) {
-					if (!this._hasPermission(permissions, attr.requiredPermissions[ii])) {
-						compatible = false;
-					}
-				}
-
-				if (compatible) {
-					filteredByPermissions.push(attr);
-				}
-			}
-
-			return filteredByPermissions;
-		},
-
-		/**
 		 * Returns share attributes for given share index
 		 *
 		 * @param shareIndex
@@ -940,25 +911,60 @@
 		},
 
 		/**
+		 * Filter registered attributes by current share permissions
+		 *
+		 * @param {number} permissions
+		 * @returns {OC.Share.Types.RegisteredShareAttribute[]}
+		 * @private
+		 */
+		_filterRegisteredAttributes: function(permissions) {
+			var filteredByPermissions = [];
+			for(var i in this._registeredAttributes) {
+				var compatible = true;
+				var attr = this._registeredAttributes[i];
+				for(var ii in attr.incompatiblePermissions) {
+					if (this._hasPermission(permissions, attr.incompatiblePermissions[ii])) {
+						compatible = false;
+					}
+				}
+				for(var ii in attr.requiredPermissions) {
+					if (!this._hasPermission(permissions, attr.requiredPermissions[ii])) {
+						compatible = false;
+					}
+				}
+
+				if (compatible) {
+					filteredByPermissions.push(attr);
+				}
+			}
+
+			return filteredByPermissions;
+		},
+
+		/**
 		 * Returns share attribute label for given attribute scope and name. If
 		 * attribute does not exist, null is returned.
 		 *
 		 * @param scope
 		 * @param key
-		 * @returns string|null
+		 * @returns {OC.Share.Types.RegisteredShareAttribute}
 		 */
-		getRegisteredShareAttributeLabel: function(scope, key) {
+		getRegisteredShareAttribute: function(scope, key) {
 			for(var i in this._registeredAttributes) {
 				if (this._registeredAttributes[i].scope === scope
 					&& this._registeredAttributes[i].key === key) {
-					return this._registeredAttributes[i].label;
+					return this._registeredAttributes[i];
 				}
 			}
 			return null;
 		},
 
 		/**
-		 * Apps can register default share attributes
+		 * Apps can register default share attributes. The applications
+		 * registering share attributes are required to follow the rules:
+		 *   attribute enabled -> functionality is added (e.g. can download)
+		 *   attribute disabled -> functionality is restricted
+		 *   incompatible attribute -> functionality is ignored
 		 *
 		 * @param {OC.Share.Types.RegisteredShareAttribute} $shareAttribute
 		 */
