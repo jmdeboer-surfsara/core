@@ -173,6 +173,7 @@ class Application extends App {
 					$server->getDatabaseConnection(),
 					$server->getUserManager(),
 					\OC\Files\Filesystem::getLoader(),
+					$this->getFederatedShareProvider(),
 					$externalMountProvider
 				);
 			}

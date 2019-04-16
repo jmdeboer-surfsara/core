@@ -22,6 +22,7 @@
 namespace OCA\FederatedFileSharing\Tests\Command;
 
 use Doctrine\DBAL\Driver\Statement;
+use OCA\FederatedFileSharing\FederatedShareProvider;
 use OCA\FederatedFileSharing\Tests\TestCase;
 use OCA\FederatedFileSharing\Command\PollIncomingShares;
 use OCA\Files_Sharing\External\MountProvider;
@@ -32,6 +33,7 @@ use OCP\Files\StorageNotAvailableException;
 use OCP\IDBConnection;
 use OCP\IUser;
 use OCP\IUserManager;
+use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
@@ -44,25 +46,31 @@ class PollIncomingSharesTest extends TestCase {
 	/** @var CommandTester */
 	private $commandTester;
 
-	/** @var IDBConnection | \PHPUnit_Framework_MockObject_MockObject */
+	/** @var IDBConnection | MockObject */
 	private $dbConnection;
 
-	/** @var IUserManager | \PHPUnit_Framework_MockObject_MockObject */
+	/** @var IUserManager | MockObject */
 	private $userManager;
 
-	/** @var MountProvider | \PHPUnit_Framework_MockObject_MockObject */
+	/** @var MountProvider | MockObject */
 	private $externalMountProvider;
 
-	/** @var IStorageFactory | \PHPUnit_Framework_MockObject_MockObject */
+	/** @var IStorageFactory | MockObject */
 	private $loader;
+
+	/**
+	 * @var FederatedShareProvider | MockObject
+	 */
+	private $shareProvider;
 
 	protected function setUp() {
 		parent::setUp();
 		$this->dbConnection = $this->createMock(IDBConnection::class);
 		$this->userManager = $this->createMock(IUserManager::class);
-		$this->externalMountProvider = $this->createMock(MountProvider::class);
 		$this->loader = $this->createMock(IStorageFactory::class);
-		$command = new PollIncomingShares($this->dbConnection, $this->userManager, $this->loader, $this->externalMountProvider);
+		$this->shareProvider = $this->createMock(FederatedShareProvider::class);
+		$this->externalMountProvider = $this->createMock(MountProvider::class);
+		$command = new PollIncomingShares($this->dbConnection, $this->userManager, $this->loader, $this->shareProvider, $this->externalMountProvider);
 		$this->commandTester = new CommandTester($command);
 	}
 
@@ -92,7 +100,7 @@ class PollIncomingSharesTest extends TestCase {
 	}
 
 	public function testWithFilesSharingDisabled() {
-		$command = new PollIncomingShares($this->dbConnection, $this->userManager, $this->loader, null);
+		$command = new PollIncomingShares($this->dbConnection, $this->userManager, $this->loader, $this->shareProvider, null);
 		$this->commandTester = new CommandTester($command);
 		$this->commandTester->execute([]);
 		$output = $this->commandTester->getDisplay();
@@ -103,8 +111,13 @@ class PollIncomingSharesTest extends TestCase {
 		$uid = 'foo';
 		$exprBuilder = $this->createMock(IExpressionBuilder::class);
 		$statementMock = $this->createMock(Statement::class);
-		$statementMock->method('fetch')->willReturnOnConsecutiveCalls(['user' => $uid], false);
+		$statementMock->method('fetch')->willReturnOnConsecutiveCalls(
+			['user' => $uid],
+			['id' => 50, 'remote' => 'example.org'],
+			false
+		);
 		$qbMock = $this->createMock(IQueryBuilder::class);
+		$qbMock->method('select')->willReturnSelf();
 		$qbMock->method('selectDistinct')->willReturnSelf();
 		$qbMock->method('from')->willReturnSelf();
 		$qbMock->method('where')->willReturnSelf();
@@ -129,7 +142,7 @@ class PollIncomingSharesTest extends TestCase {
 		$this->commandTester->execute([]);
 		$output = $this->commandTester->getDisplay();
 		$this->assertContains(
-			'Skipping external share with id "0" from remote "example.org". Reason: "Ooops"',
+			'Skipping external share with id "50" from remote "example.org". Reason: "Ooops"',
 			$output
 		);
 	}

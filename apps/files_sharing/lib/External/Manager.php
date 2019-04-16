@@ -30,6 +30,7 @@
 namespace OCA\Files_Sharing\External;
 
 use OC\Files\Filesystem;
+use OC\User\NoUserException;
 use OCP\Files;
 use OCP\Notification\IManager;
 use OCP\Share\Events\AcceptShare;
@@ -257,7 +258,7 @@ class Manager {
 	 * @return string
 	 */
 	protected function stripPath($path) {
-		$prefix = '/' . $this->uid . '/files';
+		$prefix = "/{$this->uid}/files";
 		return \rtrim(\substr($path, \strlen($prefix)), '/');
 	}
 
@@ -308,7 +309,16 @@ class Manager {
 		return $result;
 	}
 
+	/**
+	 * @param $mountPoint
+	 * @return bool
+	 * @throws NoUserException
+	 */
 	public function removeShare($mountPoint) {
+		if ($this->uid === null) {
+			throw new NoUserException();
+		}
+
 		$mountPointObj = $this->mountManager->find($mountPoint);
 		$id = $mountPointObj->getStorage()->getCache()->getId('');
 
